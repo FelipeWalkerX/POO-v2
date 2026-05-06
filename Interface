@@ -1,0 +1,57 @@
+#include<iostream>
+using namespace std;
+
+//Interfaces
+
+class IPagamento{
+    //ATENCAO: nao ha atributo nem implementação de metodo
+
+    public:
+        virtual void processar (float valor) = 0;
+        virtual ~IPagamento(){};
+};
+
+class IAutenticavel {
+    public :
+        virtual void autenticar () = 0;
+        //virtual ~IAutenticavel(){};
+    };
+
+//Classes concretas
+
+class Pix : public IPagamento{
+    public :
+        void processar (float valor) override {
+        cout << "Pix : " << valor << endl;
+    }
+
+};
+
+class Cartao : public IPagamento, public IAutenticavel {
+    public :
+        void processar ( float valor ) override {
+            autenticar();
+            cout << " Cartao : " << valor << endl;
+        }
+        void autenticar() override{
+            cout<<"\n Usuario autenticado" << endl;
+        }
+
+};
+
+
+
+void processarPagamento(IPagamento *pagamento, float valor){
+    pagamento->processar(valor);
+}
+
+int main(){
+
+    IPagamento *p1 = new Pix();
+    IPagamento *p2 = new Cartao();
+    processarPagamento(p1, 100);
+    processarPagamento(p2, 500);
+    delete(p1);
+    delete(p2);
+    return 0;
+}
