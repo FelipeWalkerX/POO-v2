@@ -1,6 +1,8 @@
 from __future__ import annotations      #Nao tirar da primeira linha, pode dar bosta
 import random as r
 from abc import ABC, abstractmethod as abs
+import json
+from pathlib import Path
 
 class Inventario:
     def __init__(self, capacidade = 20):    #Limite maximo do inventario
@@ -99,9 +101,6 @@ class Jogador(ABC):
     def exibirStatus(self):
         pass
 
-    def __str__(self):
-        return f"Classe: {self.__class__.__name__}, Nome: {self.__nome}, Raça: {self.raça}, Level: {self.__level}, HP: {self.__hp}/{self.__hpMax}, XP: {self.xp}/{self.xpMax}"
-
     def receberDano(self, dano, matador=None):    #Passa o jogador que matar o inimigo (o que der o ultimo hit) para ganhar o xp
         self.__hp -= dano
         if self.__hp <= 0:
@@ -139,7 +138,26 @@ class Jogador(ABC):
     @abs
     def atacar(self):
         raise NotImplementedError("Subclasse deve implementar atacar")
-        
+    
+    def serializaDicionario(self):  #Cria um ponto de save
+        return  {'nome': self.getNome(),
+                'level': self.getLevel(),
+                'hp': self.getHP(),
+                'xp': self.xp,
+                #'inventario': self.inventario,
+                'raça': self.raça.__class__.__name__,   #Precisa passar cada nome de raca
+                'classe': self.__class__.__name__,  #E de classe
+                'versao': '1.0'}
+
+    @classmethod
+    def desserializaDicionario(cls, dados):   #Volta no save (reconstroi o objeto do mesmo jeito que foi construido no ponto de save)
+        j = cls(dados['nome'], dados['level'], dados['raça'], dados['hp'], dados['xp']) #Polimorfismo: usa o cls para nao precisar fazer um pra cada classse, entao ele reutiliza a mesma copisa para qualquer classe
+        j.inventario = dados.get('inventario')
+        return j
+
+    def __str__(self):
+        return f"Classe: {self.__class__.__name__}, Nome: {self.__nome}, Raça: {self.raça}, Level: {self.__level}, HP: {self.__hp}/{self.__hpMax}, XP: {self.xp}/{self.xpMax}"
+
     def __del__(self):
         if self.morto == True:
             print(f"Game Over para {self.__nome}")
@@ -267,7 +285,7 @@ class Artifice(Jogador):
             raise ValueError(f"{self.getNome()} nao sabe como criar {tipo}")
         
         self.inventario.adicionarItem(item)     #So depois de validar se o item existe, ele guarda o item criado no inventario
-        print(f"Voce criou {item} com sucesso")
+        print(f"Voce criou {item.nomeItem} com sucesso")
         return item
 
         
@@ -367,6 +385,101 @@ class Guerreiro(Jogador):
     def exibirStatus(self):
         print(f"Classe: {self.classe}, Nome: {self.getNome()}, Raça: {self.raça}, Level: {self.getLevel()}, HP: {self.getHP()}/{self.getHPMax()}, XP: {self.xp}/{self.xpMax}")
 
+#Inimigos
+class Inimigo(ABC): #Classe so pra inimigo
+    def __init__(self, nome, hp, dano, xpRecompensa, ouroRecompensa):
+        self.__nome = nome
+        self.hp = hp
+        self.hpMax = hp
+        self.dano = dano
+        self.xpRecompensa = xpRecompensa
+        self.ouroRecompensa = ouroRecompensa
+        self.morto = False
+
+    def getNome(self):
+        return self.__nome
+    
+    def setNome(self, nome):
+        self.__nome = nome
+
+    @abs
+    def atacar(self, alvo): #Aonde os inimigos irao herdar o atacar
+        pass
+
+    def droparRecompensas(self, jogador): #Funcao que ativa caso o inimigo morra, ai ele libera a recompensas para os jogadores
+        if self.morto:
+            jogador.ganharXP(self.xpRecompensa)
+            GerenciadorDeJogo().adicionarOuro(self.ouroRecompensa) #Grana ganha no combate com qualquer inimigo vai para o cofrinho do time
+            print(f"{jogador.getNome()} ganhou {self.xpRecompensa} de XP e {self.ouroRecompensa} de grana!")
+
+    def receberDano(self, dano, jogador):
+        self.hp -= dano
+        if self.hp <= 0:
+            self.hp = 0
+            self.morto = True
+            print(f"{self.getNome()} foi derrotado!")
+            self.droparRecompensas(jogador)
+
+class Dragao(Inimigo):
+    def __init__(self):
+        super().__init__("Dragao", hp = 3000, dano = 30, xpRecompensa = 100, ouroRecompensa = 200)
+
+    def atacar(self, alvo):
+        print(f"{self.getNome()} vai atacar {alvo.getNome()}:")
+        if alvo.morto:
+            print(f"{alvo.getNome()} ja esta morto!")
+            return False
+        roll = r.randint(1, 20)
+        if roll == 1:
+            Logger().log(f"{self.getNome()} falhou miseravelmente no seu ataque")
+            return 0
+        alvo.receberDano(self.dano, self)
+        Logger().log(f"{self.getNome()} soltou o bafo do selvagem no {alvo.getNome()} e deu {self.dano} de dano")
+        if alvo.morto:
+            print(f"{alvo.getNome()} virou carvao!\n")
+        else:
+            print(f"{alvo.getNome()}: {alvo.getHP()}/{alvo.getHPMax()}\n")
+
+class Basilisco(Inimigo):
+    def __init__(self):
+        super().__init__("Basilisco", hp = 2000, dano = 25, xpRecompensa = 80, ouroRecompensa = 120)
+  
+    def atacar(self, alvo):
+        print(f"{self.getNome()} vai atacar {alvo.getNome()}:")
+        if alvo.morto:
+            print(f"{alvo.getNome()} ja esta morto!")
+            return False
+        roll = r.randint(1, 20)
+        if roll == 1:
+            Logger().log(f"{self.getNome()} falhou miseravelmente no seu ataque")
+            return 0
+        alvo.receberDano(self.dano, self)
+        Logger().log(f"{self.getNome()} mordeu {alvo.getNome()} e deu {self.dano} de dano")
+        if alvo.morto:
+            print(f"{alvo.getNome()} foi engolido pelo {self.getNome()}!\n")
+        else:
+            print(f"{alvo.getNome()}: {alvo.getHP()}/{alvo.getHPMax()}\n")
+
+class Saqueadores(Inimigo):
+    def __init__(self):
+        super().__init__("Saqueadores", hp = 500, dano = 15, xpRecompensa = 30, ouroRecompensa = 100)
+
+    def atacar(self, alvo):
+        print(f"{self.getNome()} vai atacar {alvo.getNome()}:")
+        if alvo.morto:
+            print(f"{alvo.getNome()} ja esta morto!")
+            return False
+        roll = r.randint(1, 20)
+        if roll == 1:
+            Logger().log(f"{self.getNome()} falhou miseravelmente no seu ataque")
+            return 0
+        alvo.receberDano(self.dano, self)
+        Logger().log(f"{self.getNome()} esfaqueou o bucho do {alvo.getNome()} e deu {self.dano} de dano")
+        if alvo.morto:
+            print(f"{alvo.getNome()} virou estatistica!\n")
+        else:
+            print(f"{alvo.getNome()}: {alvo.getHP()}/{alvo.getHPMax()}\n")
+
 class Raça:
     def __init__(self, bonusCarisma = 0, bonusInteligencia = 0, bonusAgilidade = 0):
         self.bonusCarisma = bonusCarisma
@@ -374,100 +487,9 @@ class Raça:
         self.bonusAgilidade = bonusAgilidade
         #self.bonusConstituição = bonusConstituição
 
-    #Mudar pra ele mostrar o nome da raca e nao o endereco de memoria de onde ta
+    #Mudar pra ele mostrar o nome da raça e nao o endereco de memoria de onde ta
     def __str__(self):
         return self.__class__.__name__
-
-
-#Inimigos
-class Inimigo(ABC): #Classe so pra inimigo
-  def __init__(self, nome, hp, dano, xpRecompensa, ouroRecompensa):
-    self.nome = nome
-    self.hp = hp
-    self.hpMax = hp
-    self.dano = dano
-    self.xpRecompensa = xpRecompensa
-    self.ouroRecompensa = ouroRecompensa
-    self.morto = False
-
-  @abs
-  def atacar(self, alvo): #Aonde os inimigos irao herdar o atacar
-    pass
-
-  def droparRecompensas(self, jogador): #Funcao que ativa caso o inimigo morra, ai ele libera a recompensas para os jogadores
-    if self.morto:
-      jogador.ganharXP(self.xpRecompensa)
-      GerenciadorDeJogo().adicionarOuro(self.ouroRecompensa) #Grana ganha no combate com qualquer inimigo vai para o cofrinho do time
-      print(f"{jogador.getNome()} ganhou {self.xpRecompensa} de XP e {self.ouroRecompensa} de grana!")
-
-  def receberDano(self, dano, jogador):
-    self.hp -= dano
-    if self.hp <= 0:
-      self.hp = 0
-      self.morto = True
-      print(f"{self.nome} foi derrotado!")
-      self.droparRecompensas(jogador)
-
-
-class Dragao(Inimigo):
-  def __init__(self):
-      super().__init__("Dragao", hp = 3000, dano = 30, xpRecompensa = 100, ouroRecompensa = 200)
-
-  def atacar(self, alvo):
-      print(f"{self.nome} vai atacar {alvo.getNome()}:")
-      if alvo.morto:
-        print(f"{alvo.getNome()} ja esta morto!")
-        return False
-      roll = r.randint(1, 20)
-      if roll == 1:
-        Logger().log(f"{self.nome} falhou miseravelmente no seu ataque")
-        return 0
-      alvo.receberDano(self.dano)
-      Logger().log(f"{self.nome} soltou o bafo do selvagem no {alvo.getNome()} e deu {self.dano} de dano")
-      if alvo.morto:
-        print(f"{alvo.getNome()} virou carvao!\n")
-      else:
-        print(f"{alvo.getNome()}: {alvo.getHP()}/{alvo.getHPMax()}\n")
-
-class Basilisco(Inimigo):
-  def __init__(self):
-      super().__init__("Basilisco", hp = 2000, dano = 25, xpRecompensa = 80, ouroRecompensa = 120)
-  
-  def atacar(self, alvo):
-      print(f"{self.nome} vai atacar {alvo.getNome()}:")
-      if alvo.morto:
-        print(f"{alvo.getNome()} ja esta morto!")
-        return False
-      roll = r.randint(1, 20)
-      if roll == 1:
-        Logger().log(f"{self.nome} falhou miseravelmente no seu ataque")
-        return 0
-      alvo.receberDano(self.dano)
-      Logger().log(f"{self.nome} mordeu {alvo.getNome()} e deu {self.dano} de dano")
-      if alvo.morto:
-        print(f"{alvo.getNome()} foi engolido pelo {self.nome}!\n")
-      else:
-        print(f"{alvo.getNome()}: {alvo.getHP()}/{alvo.getHPMax()}\n")
-
-class Saqueadores(Inimigo):
-  def __init__(self):
-      super().__init__("Saqueadores", hp = 500, dano = 15, xpRecompensa = 30, ouroRecompensa = 100)
-
-  def atacar(self, alvo):
-      print(f"{self.nome} vai atacar {alvo.getNome()}:")
-      if alvo.morto:
-        print(f"{alvo.getNome()} ja esta morto!")
-        return False
-      roll = r.randint(1, 20)
-      if roll == 1:
-        Logger().log(f"{self.nome} falhou miseravelmente no seu ataque")
-        return 0
-      alvo.receberDano(self.dano)
-      Logger().log(f"{self.nome} esfaqueou o bucho do {alvo.getNome()} e deu {self.dano} de dano")
-      if alvo.morto:
-        print(f"{alvo.getNome()} virou estatistica!\n")
-      else:
-        print(f"{alvo.getNome()}: {alvo.getHP()}/{alvo.getHPMax()}\n")
 
 #Raças
 class MeioElfo(Raça):
@@ -536,18 +558,18 @@ class Armadura(Item):
             jogador.armaduraEquipada = self     #Coloco a armadura
             jogador.defesaTotal += self.defesa  
             jogador.inventario.itens.remove(self)          #Zero o valor que ele ocupa no inventario (ou seja, tiro a armadura do inventario para coloca-la)
-            print(f"{jogador.getNome()} vestiu sua armadura")
+            print(f"{jogador.getNome()} vestiu sua {self.nomeItem}")
         else:
-            print(f"{jogador.getNome()}, ja esta com a armadura equipada!")
+            print(f"{jogador.getNome()}, ja esta com a {self.nomeItem} equipada!")
 
     def desequipar(self, jogador):
         if jogador.armaduraEquipada is not None:        #Mesma coisa que para colocar a arma
             jogador.armaduraEquipada = None     #Tira a armadura
             jogador.defesaTotal -= self.defesa      #Perde a defesa extra
             jogador.inventario.adicionarItem(self)          #Coloca o item de volta no inventario, voltando a ocupar espaco
-            print(f"{jogador.getNome()} tirou sua armadura")
+            print(f"{jogador.getNome()} tirou a {self.nomeItem}")
         else:
-            print(f"{jogador.getNome()}, ja esta sem armadura!")
+            print(f"{jogador.getNome()}, ja esta sem a {self.nomeItem}!")
 
 
     def __str__(self):
@@ -668,6 +690,9 @@ class OrbeRessureicao(Consumiveis):
             if usuario.morto:
                 print(f"{usuario.getNome()} tambem esta morto e nao pode ressucitar {alvo.getNome()}")
                 return False
+            if usuario.morto is False:
+                print(f"{alvo.getNome()} ainda esta vivo")
+                return False
             if self.quantidade > 0:
                 alvo.morto = False
                 alvo.setHP(1)       #Setando o hp de volta pra 1 pra nao cair na malha fina do curar
@@ -677,7 +702,7 @@ class OrbeRessureicao(Consumiveis):
             else: 
                 raise ValueError("Voce nao tem mais orbes!")
         else:
-            print(f"{alvo.getNome()} ainda esta vivo")
+            print("Nao é permitido usar o orbe em si mesmo")
             return False
 
 class ItemGenerico(Item):
@@ -747,7 +772,7 @@ class GerenciadorDeJogo:
 
     def adicionarInimigos(self, inimigo):
       self.inimigos.append(inimigo)
-      print(f"{inimigo.nome} adicionado. Total de inimigos: {len(self.inimigos)}")
+      print(f"{inimigo.getNome()} adicionado. Total de inimigos: {len(self.inimigos)}")
         
 class Masmorra:
     def derrotarChefe(self):
@@ -842,11 +867,11 @@ class CriacaoItens:
 
 class CriacaoJogadores:
     @staticmethod
-    def criarJogadores(classe, nome, nivel, raca):
-        jogadores = {"bruxo": Bruxo(nome, nivel, raca),
-                     "ladrao": Ladrao(nome, nivel, raca),
-                     "artifice": Artifice(nome, nivel, raca),
-                     "guerreiro": Guerreiro(nome, nivel, raca)}
+    def criarJogadores(classe, nome, nivel, raça):
+        jogadores = {"bruxo": Bruxo(nome, nivel, raça),
+                     "ladrao": Ladrao(nome, nivel, raça),
+                     "artifice": Artifice(nome, nivel, raça),
+                     "guerreiro": Guerreiro(nome, nivel, raça)}
         return jogadores.get(classe, None)
 
 class CriacaoInimigos:
@@ -857,8 +882,33 @@ class CriacaoInimigos:
                 "saqueadores": Saqueadores()}
     return inimigos.get(nome, None)
 
+class SistemasArquivos:
+    @staticmethod
+    def salvarJogo(jogador, arquivo="save.json"):   #Salvando o jogo em um json
+        dados = jogador.serializaDicionario()
+        with open(arquivo, 'w', encoding='utf-8') as f:     #Abre o arquivo em modo de escrita ("write") e salva em f
+            json.dump(dados, f, indent=2, ensure_ascii=False)   #Salva os dados em f e identa com 2 espacos (ensure_ascii=False é pra permitir salvar caracteres especiais)
+        print(f"Jogo salvo em {arquivo}")
+    
+    @staticmethod
+    def carregarJogo(arquivo = "save.json"):
+        if not Path(arquivo).exists():      #Se o arquivo "arquivo" nao existir
+            print(f"Arquivo {arquivo} nao encontrado!")
+            return None
+        
+        with open(arquivo, 'r', encoding='utf-8') as f:     #Carrega o arquivo em modo leitura ("read") de f
+            dados = json.load(f)       #Carrega o json do arquivo f
 
+        classe = dados.get('classe')
+        classes = {'Bruxo': Bruxo,
+                   'Ladrao': Ladrao,
+                   'Artifice': Artifice,
+                   'Guerreiro': Guerreiro}
 
+        jogador = classes[classe].desserializaDicionario(dados)     #O jogador recebe os dados do ultimo save, precisa pegar pela classe pois a classe Jogador é abstrata
+        print(f"Jogo carregado de {arquivo}")
+        return jogador
+    
 #Main
 if __name__ == "__main__":
         # Criando jogadores pela Factory
@@ -943,5 +993,28 @@ if __name__ == "__main__":
     jogador1.ganharXP(150)
     print(jogador1)
 
+    print("\n--- INIMIGOS ---")
+    dragao = CriacaoInimigos.criarInimigos("dragao")
+    basilisco = CriacaoInimigos.criarInimigos("basilisco")
+    gerenciadorJogo = GerenciadorDeJogo.instancia()
+    gerenciadorJogo.adicionarInimigos(dragao)
+    gerenciadorJogo.adicionarInimigos(basilisco)
+
+    dragao.atacar(jogador1)
+    jogador4.atacar(dragao)  # testando inimigo recebendo dano e dropando recompensa
+
+    # Save/Load
+    print("\n--- SAVE/LOAD ---")
+    SistemasArquivos.salvarJogo(jogador1)
+    jogadorCarregado = SistemasArquivos.carregarJogo()
+    print(jogadorCarregado)
+
+    # Desequipar
+    print("\n--- DESEQUIPANDO ---")
+    espada.desequipar(jogador2)
+    armaduraFerro.desequipar(jogador4)
+
     #Exibindo os logs da partida
+    print("\n--- LOGS ---")
     Logger().exibirLogs()
+
